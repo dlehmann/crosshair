@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Crosshair
+Comment=Permanent, click-through crosshair overlay for the screen
+Comment[de]=Permanentes, klick-durchlässiges Fadenkreuz-Overlay für den Bildschirm
+Comment[fr]=Superposition de réticule permanente et transparente aux clics
+Exec=@EXEC_PATH@
+Icon=@ICON_NAME@
+Terminal=false
+NoDisplay=false
+StartupNotify=false
+StartupWMClass=crosshair
+Categories=Utility;Game;
+Keywords=crosshair;overlay;aim;fadenkreuz;reticule;

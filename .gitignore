@@ -1,0 +1,42 @@
+# Build output
+build/
+cmake-build-*/
+out/
+
+# CMake-generated files (in case of an in-source or non-standard build dir)
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+Testing/
+
+# Compiled objects/binaries
+*.o
+*.obj
+*.so
+*.so.*
+*.a
+/crosshair
+
+# Files the program generates at runtime next to its binary - not source.
+# Anchored to the repo root: unanchored patterns would also match
+# assets/crosshair.example.svg-like files if any ever get added elsewhere.
+/crosshair.yml
+/crosshair.svg
+
+# AppImage packaging (package-appimage.sh): AppDir/ and the built
+# .AppImage live under build/ (already ignored above); .appimage-tools/ is
+# a separate, persistent download cache kept outside build/ on purpose.
+.appimage-tools/
+*.AppImage
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS cruft
+.DS_Store
