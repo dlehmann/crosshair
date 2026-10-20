@@ -1,5 +1,12 @@
 # Crosshair
 
+<a href="https://dlehmann.github.io/crosshair/">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/screenshot-dark.webp">
+    <img src="assets/screenshot-light.webp" alt="Crosshair">
+  </picture>
+</a>
+
 A borderless, permanent, click-through crosshair overlay for Linux desktops.
 It draws a crosshair (from an SVG file, or an auto-generated default one)
 exactly centered on your primary monitor, stays on top of every other
