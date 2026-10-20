@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crosshair – a click-through crosshair overlay for Linux</title>
+<meta name="description" content="Crosshair draws a borderless, permanent, click-through crosshair overlay on your primary monitor. No aim assistance, no game-state awareness - just a static image on top of everything, built with plain Xlib + Cairo + librsvg.">
+<meta property="og:title" content="Crosshair – a click-through crosshair overlay for Linux">
+<meta property="og:description" content="A borderless, permanent, click-through crosshair overlay. Stays on top, never intercepts a click.">
+<link rel="icon" href="crosshair.svg" type="image/svg+xml">
+<style>
+  /* A HUD/reticle theme: near-black, red targeting accent, green "active" accent,
+     corner-bracket panels instead of boxes - distinct from any menu-bar/status-line chrome. */
+  :root {
+    color-scheme: dark;
+    --bg: #07080a;
+    --bg-panel: #0d0f13;
+    --bg-sunken: #040505;
+    --line: #20242c;
+    --text: #d7dadf;
+    --muted: #7c828c;
+    --heading: #ffffff;
+    --accent: #ff3b3b;
+    --accent-dim: #7a2424;
+    --active: #3bff8f;
+    --mono: ui-monospace, "DejaVu Sans Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      color-scheme: light;
+      --bg: #f0f1f3;
+      --bg-panel: #ffffff;
+      --bg-sunken: #e7e8eb;
+      --line: #d3d6db;
+      --text: #15171a;
+      --muted: #5b6069;
+      --heading: #000000;
+      --accent: #c81e1e;
+      --accent-dim: #e2b3b3;
+      --active: #1a8f4f;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.65 var(--mono);
+  }
+  a { color: var(--accent); text-decoration-color: var(--accent-dim); text-underline-offset: 3px; }
+  a:hover { text-decoration-color: var(--accent); }
+  svg, img { max-width: 100%; display: block; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 20px; }
+  .eyebrow {
+    color: var(--accent); font-size: 13px; letter-spacing: 0.12em; margin: 0 0 10px;
+    text-transform: uppercase;
+  }
+
+  /* Corner-bracket frame: four small L-brackets at the corners of a bordered panel */
+  .frame {
+    position: relative;
+    border: 1px solid var(--line);
+    background-color: var(--bg-panel);
+    background-image:
+      linear-gradient(to right, var(--accent) 2px, transparent 2px),
+      linear-gradient(to left,  var(--accent) 2px, transparent 2px),
+      linear-gradient(to right, var(--accent) 2px, transparent 2px),
+      linear-gradient(to left,  var(--accent) 2px, transparent 2px),
+      linear-gradient(to bottom, var(--accent) 2px, transparent 2px),
+      linear-gradient(to bottom, var(--accent) 2px, transparent 2px),
+      linear-gradient(to top,    var(--accent) 2px, transparent 2px),
+      linear-gradient(to top,    var(--accent) 2px, transparent 2px);
+    background-repeat: no-repeat;
+    background-size: 18px 2px, 18px 2px, 18px 2px, 18px 2px, 2px 18px, 2px 18px, 2px 18px, 2px 18px;
+    background-position: top left, top right, bottom left, bottom right,
+                          top left, bottom left, top right, bottom right;
+  }
+
+  /* Nav */
+  header.nav {
+    position: sticky; top: 0; z-index: 10;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
+  }
+  header.nav .wrap { display: flex; align-items: center; gap: 28px; padding: 14px 20px; flex-wrap: wrap; }
+  .logo { display: flex; align-items: center; gap: 10px; color: var(--heading); text-decoration: none;
+    font-weight: 600; letter-spacing: 0.06em; font-size: 15px; }
+  .logo svg { width: 22px; height: 22px; }
+  .navlinks { display: flex; gap: 22px; flex-wrap: wrap; margin-left: auto; }
+  .navlinks a { color: var(--muted); text-decoration: none; font-size: 14px; letter-spacing: 0.04em;
+    text-transform: uppercase; padding: 4px 0; border-bottom: 1px solid transparent; }
+  .navlinks a:hover, .navlinks a:focus-visible { color: var(--heading); border-color: var(--accent); outline: none; }
+
+  /* Hero */
+  .hero { padding: 72px 0 56px; }
+  .hero .wrap { display: grid; gap: 48px; grid-template-columns: minmax(0, 1fr); align-items: center; }
+  .hero h1 {
+    margin: 0; font-size: clamp(42px, 8vw, 72px); line-height: 1.02; color: var(--heading);
+    letter-spacing: -0.02em; text-transform: uppercase;
+  }
+  .tagline { font-size: clamp(17px, 2vw, 20px); color: var(--accent); margin: 16px 0 0; max-width: 42em; }
+  .lead { color: var(--muted); max-width: 48em; margin: 16px 0 0; }
+  .lead code { color: var(--text); }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+  .button {
+    display: inline-block; padding: 10px 20px; text-decoration: none; border: 1px solid var(--line);
+    color: var(--text); background: var(--bg-panel); font-size: 14px; letter-spacing: 0.03em;
+  }
+  .button:hover, .button:focus-visible { border-color: var(--accent); color: var(--heading); outline: none; }
+  .button.primary { background: var(--accent); color: #1a0000; border-color: var(--accent); font-weight: 600; }
+  .button.primary:hover, .button.primary:focus-visible { background: #ff6161; border-color: #ff6161; color: #1a0000; }
+
+  /* HUD reticle graphic with corner telemetry readouts */
+  .hud { position: relative; aspect-ratio: 1 / 1; max-width: 420px; margin: 0 auto; width: 100%; }
+  .hud .ring {
+    position: absolute; inset: 8%; border-radius: 50%;
+    border: 1px dashed var(--line);
+    animation: spin 40s linear infinite;
+  }
+  .hud .ring.inner { inset: 22%; border-style: solid; border-color: var(--line); animation-duration: 28s; animation-direction: reverse; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .hud .ring { animation: none; } }
+  .hud svg.crosshair { position: absolute; inset: 0; width: 44%; height: 44%; margin: auto; }
+  .hud .tick { position: absolute; background: var(--line); }
+  .hud .tick.n { top: 2%; left: 50%; width: 1px; height: 6%; transform: translateX(-50%); }
+  .hud .tick.s { bottom: 2%; left: 50%; width: 1px; height: 6%; transform: translateX(-50%); }
+  .hud .tick.e { right: 2%; top: 50%; height: 1px; width: 6%; transform: translateY(-50%); }
+  .hud .tick.w { left: 2%; top: 50%; height: 1px; width: 6%; transform: translateY(-50%); }
+  .readout {
+    position: absolute; font-size: 11px; line-height: 1.5; color: var(--muted); padding: 6px 10px;
+    letter-spacing: 0.03em; white-space: nowrap;
+  }
+  .readout b { display: block; color: var(--heading); font-size: 12px; font-weight: 600; }
+  .readout .dot { color: var(--active); }
+  .readout.tl { top: -6px; left: -6px; }
+  .readout.tr { top: -6px; right: -6px; text-align: right; }
+  .readout.bl { bottom: -6px; left: -6px; }
+  .readout.br { bottom: -6px; right: -6px; text-align: right; }
+
+  @media (min-width: 900px) {
+    .hero .wrap { grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); gap: 40px; }
+  }
+
+  /* Sections */
+  section { padding: 60px 0; border-top: 1px solid var(--line); }
+  h2 { color: var(--heading); font-size: 28px; margin: 0 0 8px; letter-spacing: -0.01em; }
+  .intro { color: var(--muted); margin: 0 0 40px; max-width: 54em; }
+
+  .grid { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }
+  .panel { padding: 22px 24px; }
+  .panel strong { color: var(--heading); display: block; margin-bottom: 8px; font-size: 15px; }
+  .panel span { color: var(--muted); }
+  .panel span code { color: var(--text); }
+
+  .callout { margin-top: 28px; padding: 20px 24px; max-width: 64em; }
+  .callout strong { color: var(--accent); }
+  .callout p { margin: 0; color: var(--muted); }
+
+  /* Install */
+  .install { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); }
+  .box { padding: 20px 0 16px; }
+  .box h3 { margin: 0 20px 6px; color: var(--heading); font-size: 16px; }
+  .box p { margin: 0 20px 12px; color: var(--muted); font-size: 14px; }
+  .cmd { position: relative; margin: 0 20px; }
+  pre {
+    margin: 0; background: var(--bg-sunken); color: var(--text); padding: 34px 14px 12px; overflow-x: auto;
+    white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid var(--line);
+    font: 13px/1.6 var(--mono);
+  }
+  pre .p { color: var(--active); user-select: none; }
+  .copy {
+    position: absolute; top: 6px; right: 6px; font: 12px var(--mono); cursor: pointer;
+    background: var(--line); color: var(--text); border: 0; padding: 3px 9px;
+  }
+  .copy:hover, .copy:focus-visible { background: var(--accent); color: #1a0000; outline: none; }
+  code { color: var(--accent); font-size: 0.95em; }
+
+  footer { border-top: 1px solid var(--line); padding: 28px 0; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: center; color: var(--muted); font-size: 13px; }
+  footer .right { margin-left: auto; }
+  footer a { color: var(--muted); }
+  footer a:hover { color: var(--heading); }
+</style>
+</head>
+<body id="top">
+
+<header class="nav">
+  <div class="wrap">
+    <a class="logo" href="#top">
+      <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <g stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+          <path d="M16,10 L16,2"/><path d="M16,22 L16,30"/>
+          <path d="M10,16 L2,16"/><path d="M22,16 L30,16"/>
+        </g>
+        <circle cx="16" cy="16" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      </svg>
+      CROSSHAIR
+    </a>
+    <nav class="navlinks" aria-label="Main">
+      <a href="#features">Features</a>
+      <a href="#install">Install</a>
+      <a href="#about">About</a>
+      <a href="https://github.com/dlehmann/crosshair">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero" style="border-top:0">
+    <div class="wrap">
+      <div>
+        <p class="eyebrow">// overlay for linux</p>
+        <h1>Crosshair</h1>
+        <p class="tagline">A borderless, permanent, click-through crosshair for your screen.</p>
+        <p class="lead">
+          Draws a crosshair - from an SVG file, or an auto-generated default one - exactly
+          centered on your primary monitor. It stays on top of every other window and never
+          intercepts mouse input: clicks pass straight through to whatever is underneath. Built
+          with plain <code>Xlib + Cairo + librsvg + yaml-cpp</code> - no Qt, no GTK.
+        </p>
+        <div class="actions">
+          <a class="button primary" href="#install">Install</a>
+          <a class="button" href="https://github.com/dlehmann/crosshair/releases/latest">Download v1.0.0</a>
+          <a class="button" href="https://github.com/dlehmann/crosshair">Source code</a>
+        </div>
+      </div>
+      <div class="hud" aria-hidden="true">
+        <div class="ring"></div>
+        <div class="ring inner"></div>
+        <span class="tick n"></span><span class="tick s"></span>
+        <span class="tick e"></span><span class="tick w"></span>
+        <svg class="crosshair" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+          <g stroke="#000000" stroke-width="4" stroke-linecap="round" fill="none">
+            <path d="M16,12 L16,3"/><path d="M16,20 L16,29"/>
+            <path d="M12,16 L3,16"/><path d="M20,16 L29,16"/>
+          </g>
+          <g stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" fill="none">
+            <path d="M16,12 L16,3"/><path d="M16,20 L16,29"/>
+            <path d="M12,16 L3,16"/><path d="M20,16 L29,16"/>
+          </g>
+          <circle cx="16" cy="16" r="2.6" fill="none" stroke="#000000" stroke-width="2.4"/>
+          <circle cx="16" cy="16" r="2.6" fill="none" stroke="#ffffff" stroke-width="1"/>
+        </svg>
+        <div class="readout tl">MODE<b>OVERLAY</b></div>
+        <div class="readout tr">INPUT<b>PASSTHROUGH</b></div>
+        <div class="readout bl">STATUS<b><span class="dot">●</span> ACTIVE</b></div>
+        <div class="readout br">STACK<b>XLIB · CAIRO</b></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="wrap">
+      <p class="eyebrow">// 01</p>
+      <h2>Features</h2>
+      <p class="intro">A static overlay and nothing else - no aim assistance, no ESP, no
+        game-state awareness. Just a crosshair that is always exactly where your monitor's
+        center is.</p>
+
+      <div class="grid">
+        <div class="frame panel">
+          <strong>Truly click-through</strong>
+          <span>An empty X Shape input region means the overlay is never a candidate for
+            pointer events - clicks are delivered to the window underneath with zero latency,
+            at the X server level.</span>
+        </div>
+        <div class="frame panel">
+          <strong>Always on top</strong>
+          <span>An <code>override_redirect</code> window with <code>_NET_WM_STATE_ABOVE</code>
+            that periodically re-asserts its stacking order, so fullscreen apps and window
+            managers can't push it behind.</span>
+        </div>
+        <div class="frame panel">
+          <strong>Centered on your primary monitor</strong>
+          <span>Reads the primary output via XRandR, with sane fallbacks for unusual or
+            single-monitor setups.</span>
+        </div>
+        <div class="frame panel">
+          <strong>Your own SVG, or none needed</strong>
+          <span>Drop in a <code>crosshair.svg</code> next to the binary and it's rendered at its
+            exact pixel size. None there? A compact default is generated automatically on first
+            run.</span>
+        </div>
+        <div class="frame panel">
+          <strong>Single instance, real taskbar entry</strong>
+          <span>Shows up as a normal, minimized taskbar entry. Opening it again offers a small
+            Cancel/Exit dialog instead of starting a second overlay.</span>
+        </div>
+        <div class="frame panel">
+          <strong>Small and dependency-light</strong>
+          <span>Plain Xlib + Cairo + librsvg + yaml-cpp - no Qt, no GTK - for a binary that's
+            fast to start and easy to package.</span>
+        </div>
+      </div>
+
+      <div class="frame callout">
+        <strong>Before you use this alongside a multiplayer game:</strong>
+        <p style="margin-top:6px">some anti-cheat systems flag or prohibit <em>any</em>
+          third-party overlay drawn on top of the game window, purely because it exists -
+          regardless of what it does. Crosshair provides no gameplay advantage, but check that
+          game's terms of service first.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="wrap">
+      <p class="eyebrow">// 02</p>
+      <h2>Install</h2>
+      <p class="intro">A pre-built AppImage for Linux on x86_64, or build it yourself - a
+        C++17 compiler and a handful of development packages is all it needs.</p>
+      <div class="install">
+        <div class="frame box">
+          <h3>Pre-built AppImage (easiest)</h3>
+          <p>No compiler, no dependencies - a single, self-contained file:</p>
+          <div class="cmd"><pre><span class="p">$ </span>curl -LO https://github.com/dlehmann/crosshair/releases/latest/download/crosshair-x86_64.AppImage
+<span class="p">$ </span>chmod +x crosshair-x86_64.AppImage
+<span class="p">$ </span>./crosshair-x86_64.AppImage</pre></div>
+        </div>
+        <div class="frame box">
+          <h3>Arch · CachyOS · Manjaro</h3>
+          <p>Install the build dependencies, then build and install for your user:</p>
+          <div class="cmd"><pre><span class="p">$ </span>sudo pacman -S --needed base-devel cmake pkgconf libx11 libxext libxrandr cairo librsvg yaml-cpp
+<span class="p">$ </span>git clone https://github.com/dlehmann/crosshair.git && cd crosshair
+<span class="p">$ </span>./install.sh</pre></div>
+        </div>
+        <div class="frame box">
+          <h3>Debian · Ubuntu · KDE neon</h3>
+          <p>Install the build dependencies, then build and install for your user:</p>
+          <div class="cmd"><pre><span class="p">$ </span>sudo apt install build-essential cmake pkg-config libx11-dev libxext-dev libxrandr-dev libcairo2-dev librsvg2-dev libyaml-cpp-dev
+<span class="p">$ </span>git clone https://github.com/dlehmann/crosshair.git && cd crosshair
+<span class="p">$ </span>./install.sh</pre></div>
+        </div>
+        <div class="frame box">
+          <h3>Fedora</h3>
+          <p>Install the build dependencies, then build and install for your user:</p>
+          <div class="cmd"><pre><span class="p">$ </span>sudo dnf install gcc-c++ cmake pkgconf-pkg-config libX11-devel libXext-devel libXrandr-devel cairo-devel librsvg2-devel yaml-cpp-devel
+<span class="p">$ </span>git clone https://github.com/dlehmann/crosshair.git && cd crosshair
+<span class="p">$ </span>./install.sh</pre></div>
+        </div>
+      </div>
+      <p style="margin-top:24px; color:var(--muted)">
+        <code>install.sh</code> installs into your user's XDG directories - no root privileges
+        needed - and adds "Crosshair" to your application launcher. See the
+        <a href="https://github.com/dlehmann/crosshair#readme">README</a> for a build-only
+        option, uninstalling, and packaging your own AppImage.
+      </p>
+    </div>
+  </section>
+
+  <section id="about">
+    <div class="wrap">
+      <p class="eyebrow">// 03</p>
+      <h2>About</h2>
+      <p class="intro">Runs on any X11 desktop, and transparently through XWayland on
+        Wayland compositors like KDE Plasma and GNOME - as long as compositing is enabled, so
+        the transparent background actually renders as transparent.</p>
+      <div class="grid">
+        <div class="frame panel">
+          <strong>Purely passive</strong>
+          <span>Never reads or writes another process's memory, never hooks or injects into
+            one, never inspects game state or network traffic.</span>
+        </div>
+        <div class="frame panel">
+          <strong>Safe single instance</strong>
+          <span>A plain POSIX <code>flock()</code> - no daemon, no socket - released
+            automatically by the kernel even if the process crashes.</span>
+        </div>
+        <div class="frame panel">
+          <strong>Translatable exit dialog</strong>
+          <span>Its few strings live in <code>crosshair.yml</code> next to the binary - edit
+            them for any language, no rebuild required.</span>
+        </div>
+        <div class="frame panel">
+          <strong>Open source</strong>
+          <span>MIT License. Issues and pull requests are welcome on
+            <a href="https://github.com/dlehmann/crosshair">GitHub</a>.</span>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Crosshair v1.0.0</span>
+    <span>MIT License</span>
+    <a href="https://github.com/dlehmann/crosshair/issues">Report a bug</a>
+    <a class="right" href="impressum.html" lang="de">Impressum / Datenschutz</a>
+  </div>
+</footer>
+
+<script>
+  // A copy button for every command box (the "$ " prompts are left out)
+  for (const pre of document.querySelectorAll(".cmd pre")) {
+    const b = document.createElement("button");
+    b.className = "copy";
+    b.type = "button";
+    b.textContent = "copy";
+    b.addEventListener("click", async () => {
+      const text = [...pre.childNodes].filter(n => !(n.classList && n.classList.contains("p")))
+        .map(n => n.textContent).join("");
+      try {
+        await navigator.clipboard.writeText(text.trim());
+        b.textContent = "copied";
+      } catch (e) {
+        b.textContent = "select";
+      }
+      setTimeout(() => (b.textContent = "copy"), 1500);
+    });
+    pre.parentNode.appendChild(b);
+  }
+</script>
+</body>
+</html>
